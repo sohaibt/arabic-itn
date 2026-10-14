@@ -1,3 +1,4 @@
+<img src="https://github.com/sohaibt/arabic-itn/blob/main/docs/Arabic%20Transcript%20Conversion%20Demo.png?raw=true"> 
 # arabic-itn
 
 Turn spoken-form Arabic ASR transcripts into the exact values a voice agent needs:
