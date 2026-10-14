@@ -1,6 +1,12 @@
+import json
+import os
+import subprocess
+import sys
 import unittest
 
 from arabic_itn import normalize
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def t(s, **kw):
@@ -193,6 +199,38 @@ class OrderIds(unittest.TestCase):
     def test_order_span(self):
         r = normalize("ايه بي واحد اتنين")
         self.assertEqual(r["spans"], [dict(type="order_id", raw="ايه بي واحد اتنين", value="AB-12")])
+
+
+class Cli(unittest.TestCase):
+    def run_cli(self, text, *args):
+        out = subprocess.run([sys.executable, "-m", "arabic_itn", *args], input=text, capture_output=True,
+                             text=True, check=True, cwd=os.path.dirname(HERE)).stdout
+        return [json.loads(line) for line in out.splitlines()]
+
+    def test_one_json_object_per_line(self):
+        rows = self.run_cli("المبلغ ميتين وخمسين ريال\n\nرقمي صفر خمسة صفر واحد اتنين تلاتة اربعة خمسة ستة سبعة\n")
+        self.assertEqual([r["text"] for r in rows], ["المبلغ 250 SAR", "رقمي +966501234567"])
+        self.assertEqual(rows[0]["spans"][0]["type"], "money")
+
+    def test_country_flag(self):
+        rows = self.run_cli("صفر خمسة صفر واحد اتنين تلاتة اربعة خمسة ستة سبعة", "--country", "AE")
+        self.assertEqual(rows[0]["text"], "+971501234567")
+
+
+class Fixtures(unittest.TestCase):
+    """tests/cases.tsv: one "utterance<TAB>expected text" pair per line; # starts a comment."""
+
+    def test_cases(self):
+        cases = []
+        with open(os.path.join(HERE, "cases.tsv"), encoding="utf-8") as f:
+            for n, line in enumerate(f, 1):
+                if line.strip() and not line.startswith("#"):
+                    src, want = line.rstrip("\n").split("\t")
+                    cases.append((n, src, want))
+        self.assertGreaterEqual(len(cases), 200)
+        for n, src, want in cases:
+            with self.subTest(line=n, src=src):
+                self.assertEqual(t(src), want)
 
 
 if __name__ == "__main__":

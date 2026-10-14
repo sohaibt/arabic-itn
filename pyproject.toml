@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arabic-itn"
+version = "0.1.0"
+description = "Turn spoken-form Arabic ASR transcripts into exact values: phones, money, dates, times, emails, order IDs."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Sohaib Thiab" }]
+requires-python = ">=3.8"
+keywords = ["arabic", "nlp", "asr", "inverse-text-normalization", "voice-agents", "speech-to-text"]
+
+[project.scripts]
+arabic-itn = "arabic_itn.__main__:main"
+
+[tool.setuptools]
+packages = ["arabic_itn"]
