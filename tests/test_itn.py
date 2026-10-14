@@ -78,5 +78,32 @@ class Phones(unittest.TestCase):
         self.assertEqual(r["spans"][0]["value"], "+966501234567")
 
 
+class Money(unittest.TestCase):
+    def test_currencies(self):
+        self.assertEqual(t("المبلغ ميتين وخمسين ريال"), "المبلغ 250 SAR")
+        self.assertEqual(t("خمسين درهم"), "50 AED")
+        self.assertEqual(t("مية جنيه مصري"), "100 EGP")
+        self.assertEqual(t("عشرين دولار"), "20 USD")
+        self.assertEqual(t("ألف ريال سعودي"), "1000 SAR")
+        self.assertEqual(t("خمسة آلاف درهم إماراتي"), "5000 AED")
+        self.assertEqual(t("٢٥٠ ريال"), "250 SAR")
+        self.assertEqual(t("ثلاثة ريالات"), "3 SAR")
+
+    def test_subunits(self):
+        self.assertEqual(t("عشرة ريال وخمسين هللة"), "10.50 SAR")
+        self.assertEqual(t("خمسة دراهم وخمس وعشرين فلس"), "5.25 AED")
+        self.assertEqual(t("خمسين هللة"), "0.50 SAR")
+        self.assertEqual(t("جنيه وخمسين قرش"), "1.50 EGP")
+
+    def test_duals(self):
+        self.assertEqual(t("دفعت ريالين"), "دفعت 2 SAR")
+        self.assertEqual(t("درهمين"), "2 AED")
+
+    def test_money_span(self):
+        r = normalize("ادفع ميتين وخمسين ريال لو سمحت")
+        self.assertEqual(r["spans"], [dict(type="money", raw="ميتين وخمسين ريال", value="250 SAR")])
+        self.assertEqual(r["text"], "ادفع 250 SAR لو سمحت")
+
+
 if __name__ == "__main__":
     unittest.main()

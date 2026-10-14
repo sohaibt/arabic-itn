@@ -251,9 +251,46 @@ def _match_digits(toks, i, country):
     return None
 
 
-_MATCHERS = [_match_digits, _match_number]
+_CODES4 = ["SAR", "AED", "EGP", "USD"]
+_CURRENCY = _table(dict(zip(["ريال ريالات ريالا", "درهم دراهم درهما", "جنيه جنيهات جنيها", "دولار دولارات دولارا"], _CODES4)))
+_DUAL = _table(dict(zip(["ريالين ريالان", "درهمين درهمان", "جنيهين جنيهان", "دولارين دولاران"], _CODES4)))
+_SUBUNIT = _table(dict(zip(["هللة هللات هلل", "فلس فلوس فلسا", "قرش قروش قرشا", "سنت سنتات"], _CODES4)))
+_CUR_ADJ = _table(dict.fromkeys(["سعودي سعودية إماراتي مصري أمريكي امريكي"], 1))
 
-_KNOWN = set(_NUMS) | set(_PLUS) | set(_REPEAT)
+
+def _match_money(toks, i, country):
+    """Money: "ميتين وخمسين ريال" -> 250 SAR, "عشرة ريال وخمسين هللة" -> 10.50 SAR."""
+    t, n = toks[i], len(toks)
+    bare = False
+    if t.key in _DUAL:
+        amount, code, j = 2, _DUAL[t.key], i + 1
+    elif t.key in _CURRENCY:  # "جنيه وخمسين قرش": only with a subunit after it
+        amount, code, j, bare = 1, _CURRENCY[t.key], i + 1, True
+    else:
+        r = _number(toks, i)
+        if not r or r[0] >= n or toks[r[0] - 1].post:
+            return None
+        unit = toks[r[0]].key
+        if unit in _SUBUNIT and r[1] < 100:
+            return r[0] + 1, "money", "0.%02d %s" % (r[1], _SUBUNIT[unit])
+        if unit not in _CURRENCY:
+            return None
+        amount, code, j = r[1], _CURRENCY[unit], r[0] + 1
+    if j < n and toks[j].key in _CUR_ADJ and not toks[j - 1].post:
+        j += 1
+    cents = None
+    if j < n and toks[j].conj and not toks[j - 1].post:
+        r = _number(toks, j)
+        if r and r[1] < 100 and r[0] < n and _SUBUNIT.get(toks[r[0]].key) == code:
+            cents, j = r[1], r[0] + 1
+    if cents is None:
+        return None if bare else (j, "money", "%d %s" % (amount, code))
+    return j, "money", "%d.%02d %s" % (amount, cents, code)
+
+
+_MATCHERS = [_match_money, _match_digits, _match_number]
+
+_KNOWN = set(_NUMS) | set(_PLUS) | set(_REPEAT) | set(_CURRENCY) | set(_DUAL) | set(_SUBUNIT)
 
 
 def normalize(text, country="SA"):
