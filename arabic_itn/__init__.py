@@ -188,9 +188,72 @@ def _match_number(toks, i, country):
     return end, "number", str(value)
 
 
-_MATCHERS = [_match_number]
+_PLUS = _table(dict.fromkeys(["زائد زايد plus بلس"], 1))
+_REPEAT = _table(dict(zip(["دبل دوبل double", "تريبل تربل triple"], [2, 3])))
+_CODES = dict(SA="966", AE="971")
 
-_KNOWN = set(_NUMS)
+
+def _e164(d, plus, country):
+    """Saudi / UAE mobile digit string -> E.164, else None."""
+    if d.startswith("00"):
+        d, plus = d[2:], True
+    if plus or d[:3] in ("966", "971"):
+        cc, nat = d[:3], d[3:]
+        if cc not in ("966", "971"):
+            return None
+        if nat.startswith("0"):
+            nat = nat[1:]
+    elif re.fullmatch(r"05\d{8}", d):
+        cc, nat = _CODES[country], d[1:]
+    else:
+        return None
+    return "+" + cc + nat if re.fullmatch(r"5\d{8}", nat) else None
+
+
+def _match_digits(toks, i, country):
+    """Phone numbers and digit-by-digit runs ("واحد اتنين تلاتة" -> 123)."""
+    j = i
+    plus = toks[i].key in _PLUS
+    if plus:
+        j += 1
+    parts, single, literal = [], True, False
+    while j < len(toks):
+        t = toks[j]
+        if parts and (t.conj or toks[j - 1].post.strip("،,-")):
+            break
+        n = _REPEAT.get(t.key)
+        if n:
+            r = _number(toks, j + 1) if j + 1 < len(toks) else None
+            if not r or len(r[2]) != 1 or toks[j + 1].conj:
+                break
+            parts.append(r[2] * n)
+            j = r[0]
+            continue
+        r = _number(toks, j)
+        if not r:
+            break
+        end, value, d = r
+        if t.digits is not None:
+            literal = True
+        elif end - j > 1 or len(d) > 1:
+            single = False  # grouped speech like "مية وتلاتة وعشرين"
+        parts.append(d)
+        j = end
+    if not parts:
+        return None
+    d = "".join(parts)
+    if len(parts) > 1 or plus or literal:
+        phone = _e164(d, plus or toks[i].plus, country)
+        if phone:
+            return j, "phone", phone
+    if len(parts) > 1 and single and not literal and len(d) >= 3:
+        return j, "digits", d
+    return None
+
+
+_MATCHERS = [_match_digits, _match_number]
+
+_KNOWN = set(_NUMS) | set(_PLUS) | set(_REPEAT)
 
 
 def normalize(text, country="SA"):

@@ -42,5 +42,41 @@ class Numbers(unittest.TestCase):
         self.assertEqual(t("كتاب وخمسة وعشرين قلم"), "كتاب و25 قلم")
 
 
+class Phones(unittest.TestCase):
+    def test_digit_by_digit_saudi(self):
+        self.assertEqual(t("رقمي صفر خمسة صفر واحد اتنين تلاتة اربعة خمسة ستة سبعة"), "رقمي +966501234567")
+
+    def test_eastern_digits_phone(self):
+        self.assertEqual(t("رقمي ٠٥٠١٢٣٤٥٦٧"), "رقمي +966501234567")
+
+    def test_uae_default_country(self):
+        self.assertEqual(t("صفر خمسة صفر واحد اتنين تلاتة اربعة خمسة ستة سبعة", country="AE"), "+971501234567")
+
+    def test_grouped_speech(self):
+        self.assertEqual(t("صفر خمسة خمسة، مية وتلاتة وعشرين، خمسة وأربعين، سبعة وستين"), "+966551234567")
+
+    def test_double_and_triple(self):
+        self.assertEqual(t("صفر خمسة دبل خمسة واحد اتنين تريبل تلاتة ستة"), "+966555123336")
+        self.assertEqual(t("zero five double five واحد اتنين تلاتة اربعة خمسة ستة"), "zero five double five 123456")
+
+    def test_international_prefix(self):
+        self.assertEqual(t("زائد تسعة سبعة واحد خمسة صفر واحد اتنين تلاتة اربعة خمسة ستة سبعة"), "+971501234567")
+        self.assertEqual(t("صفر صفر تسعة ستة ستة خمسة خمسة واحد اتنين تلاتة اربعة خمسة ستة سبعة"), "+966551234567")
+        self.assertEqual(t("+966 50 123 4567"), "+966501234567")
+        self.assertEqual(t("971-50-123-4567"), "+971501234567")
+
+    def test_punctuated_groups(self):
+        self.assertEqual(t("الرقم صفر خمسة خمسة، واحد اتنين تلاتة، اربعة خمسة ستة سبعة."), "الرقم +966551234567.")
+
+    def test_digit_runs(self):
+        self.assertEqual(t("الكود واحد اتنين تلاتة اربعة"), "الكود 1234")
+        self.assertEqual(t("خمسة ستة أيام"), "خمسة ستة أيام")
+
+    def test_phone_span(self):
+        r = normalize("رقمي صفر خمسة صفر واحد اتنين تلاتة اربعة خمسة ستة سبعة")
+        self.assertEqual(r["spans"][0]["type"], "phone")
+        self.assertEqual(r["spans"][0]["value"], "+966501234567")
+
+
 if __name__ == "__main__":
     unittest.main()
