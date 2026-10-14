@@ -435,7 +435,114 @@ def _match_date(toks, i, country):
     return r[0], "date", d.isoformat()
 
 
-_MATCHERS = [_match_date, _match_time, _match_money, _match_digits, _match_number]
+# English letter names as spoken, in Arabic script. Keyed without alef normalization:
+# "إي" (E) and "آي" (I) must stay apart.
+_LETTER = {w: c for c, words in zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ", [
+    "إيه ايه أيه", "بي بى", "سي سى", "دي دى", "إي ئي", "إف اف", "جي جى", "إتش اتش ايتش إيتش", "آي اي",
+    "جيه جاي", "كيه كاي كي", "إل ال", "إم ام", "إن ان", "أو او", "پي", "كيو", "آر ار", "إس اس", "تي تى",
+    "يو", "ڤي في", "دبليو", "إكس اكس", "واي", "زد زي زيد"]) for w in words.split()}
+# Letter names that are also everyday Arabic words: letters only next to another letter.
+_AMBIG = set("في او أو ان إن ال دي بي اي سي ام كي زي إيه ايه".split())
+_DOT = _table(dict.fromkeys(["dot دوت نقطة"], "."))
+_AT = _table(dict.fromkeys(["at آت أت @"], "@"))
+_UNDERSCORE = _table(dict.fromkeys(["underscore اندرسكور أندرسكور"], "_"))
+_DASH = _table(dict.fromkeys(["dash داش شرطة -"], "-"))
+_DOMAIN = _table(dict(zip(["جيميل", "ميل", "هوتميل", "ياهو", "أوتلوك آوتلوك", "كوم", "نت", "أورج"],
+                          ["gmail", "mail", "hotmail", "yahoo", "outlook", "com", "net", "org"])))
+_EMAIL = re.compile(r"[a-z0-9]([a-z0-9._%+-]*[a-z0-9])?@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9-]+)*\.[a-z]{2,6}")
+_TRIGGER = _table(dict.fromkeys(["الطلب طلب order الكود كود code المرجع مرجع رقم id الحجز حجز"], 1))
+
+
+def _is_letter(t):
+    return re.fullmatch("[A-Za-z]", t.core) or _DIACRITICS.sub("", t.core) in _LETTER
+
+
+def _letter(toks, j):
+    """Spoken letter at toks[j] -> (end, "A") or None."""
+    t, n = toks[j], len(toks)
+    if t.conj:
+        return None
+    if re.fullmatch("[A-Za-z]", t.core):
+        return j + 1, t.core.upper()
+    if t.key == "دبل" and j + 1 < n and toks[j + 1].key == "يو":
+        return j + 2, "W"
+    light = _DIACRITICS.sub("", t.core)
+    if light not in _LETTER:
+        return None
+    if light in _AMBIG and not (j > 0 and _is_letter(toks[j - 1]) or j + 1 < n and _is_letter(toks[j + 1])):
+        return None
+    return j + 1, _LETTER[light]
+
+
+def _email_piece(toks, j):
+    """One spoken email piece -> (end, text, is_word) or None."""
+    t = toks[j]
+    if t.conj:
+        return None
+    for table in (_AT, _DOT, _UNDERSCORE, _DASH, _DOMAIN):
+        if t.key in table:
+            return j + 1, table[t.key], table is _DOMAIN
+    L = _letter(toks, j)
+    if L:
+        return L[0], L[1].lower(), False
+    if t.digits is not None:
+        return j + 1, t.digits, False
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._%+-]*", t.core):
+        return j + 1, t.core.lower(), True
+    v, kind = _kind(t)
+    return (j + 1, str(v), False) if kind in ("zero", "unit") else None
+
+
+def _match_email(toks, i, country):
+    """"sara dot ali at gmail dot com" / "اس ايه ار ايه آت جيميل دوت كوم" -> sara.ali@gmail.com."""
+    pieces, ends, j, at, prev_word = [], [], i, False, False
+    while j < len(toks) and not (pieces and toks[j - 1].post):
+        p = _email_piece(toks, j)
+        if not p:
+            break
+        j, text, word = p
+        if not at and word and prev_word:
+            return None  # two plain words in the local part: start later
+        at, prev_word = at or text == "@", word
+        pieces.append(text)
+        ends.append(j)
+    for k in range(len(pieces), 2, -1):  # longest match ending in ". tld"
+        s = "".join(pieces[:k])
+        if pieces[k - 2] == "." and _EMAIL.fullmatch(s):
+            return ends[k - 1], "email", s
+    return None
+
+
+def _match_order(toks, i, country):
+    """"ايه بي واحد اتنين تلاتة اربعة" -> AB-1234. One letter or digit is enough after a trigger word."""
+    n, letters, j = len(toks), "", i
+    while j < n and not (letters and toks[j - 1].post):
+        L = _letter(toks, j)
+        if not L:
+            break
+        letters += L[1]
+        j = L[0]
+    if not letters:
+        return None
+    if j < n and toks[j].key in _DASH and not toks[j - 1].post:
+        j += 1
+    digits = ""
+    while j < n and not toks[j - 1].post and not toks[j].conj:
+        v, kind = _kind(toks[j])
+        if toks[j].digits is not None:
+            digits += toks[j].digits
+        elif kind in ("zero", "unit"):
+            digits += str(v)
+        else:
+            break
+        j += 1
+    trigger = i > 0 and toks[i - 1].key in _TRIGGER
+    if not digits or not trigger and (len(letters) < 2 or len(digits) < 2):
+        return None
+    return j, "order_id", letters + "-" + digits
+
+
+_MATCHERS = [_match_email, _match_order, _match_date, _match_time, _match_money, _match_digits, _match_number]
 
 _KNOWN = (set(_NUMS) | set(_PLUS) | set(_REPEAT) | set(_CURRENCY) | set(_DUAL) | set(_SUBUNIT)
           | set(_ORD) | set(_FRACTION))

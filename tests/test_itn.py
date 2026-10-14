@@ -156,5 +156,44 @@ class Dates(unittest.TestCase):
         self.assertEqual(r["spans"], [dict(type="date", raw="يوم الخميس خمسة عشر أكتوبر ٢٠٢٦", value="2026-10-15")])
 
 
+class Emails(unittest.TestCase):
+    def test_latin_words(self):
+        self.assertEqual(t("ايميلي sara dot ali at gmail dot com"), "ايميلي sara.ali@gmail.com")
+
+    def test_arabic_script_tokens(self):
+        self.assertEqual(t("ايميلي sara نقطة ali آت جيميل دوت كوم"), "ايميلي sara.ali@gmail.com")
+        self.assertEqual(t("الإيميل اس ايه ار ايه at هوتميل دوت كوم"), "الإيميل sara@hotmail.com")
+
+    def test_letters_digits_underscore(self):
+        self.assertEqual(t("a b واحد اتنين at yahoo dot com"), "ab12@yahoo.com")
+        self.assertEqual(t("omar underscore k at outlook dot sa"), "omar_k@outlook.sa")
+
+    def test_ambiguous_word_not_a_letter(self):
+        self.assertEqual(t("ايميلي في sara at gmail dot com"), "ايميلي في sara@gmail.com")
+
+    def test_needs_domain(self):
+        self.assertEqual(t("I am at home"), "I am at home")
+
+    def test_email_span(self):
+        r = normalize("sara at gmail dot com")
+        self.assertEqual(r["spans"], [dict(type="email", raw="sara at gmail dot com", value="sara@gmail.com")])
+
+
+class OrderIds(unittest.TestCase):
+    def test_letters_then_digits(self):
+        self.assertEqual(t("رقم الطلب ايه بي واحد اتنين تلاتة اربعة"), "رقم الطلب AB-1234")
+        self.assertEqual(t("الكود اكس واي زد تسعة تسعة"), "الكود XYZ-99")
+        self.assertEqual(t("order A B 1234"), "order AB-1234")
+        self.assertEqual(t("رقم الحجز كيو داش سبعة سبعة"), "رقم الحجز Q-77")
+
+    def test_single_letter_needs_trigger(self):
+        self.assertEqual(t("رقم الطلب جي خمسة"), "رقم الطلب G-5")
+        self.assertEqual(t("في خمسة ستة سبعة"), "في 567")
+
+    def test_order_span(self):
+        r = normalize("ايه بي واحد اتنين")
+        self.assertEqual(r["spans"], [dict(type="order_id", raw="ايه بي واحد اتنين", value="AB-12")])
+
+
 if __name__ == "__main__":
     unittest.main()
