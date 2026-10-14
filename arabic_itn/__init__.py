@@ -3,6 +3,7 @@
 normalize(text) turns spoken-form values (numbers, phone numbers, money, times,
 dates, spelled emails and order IDs) into their written form. Standard library only.
 """
+import datetime
 import re
 
 __all__ = ["normalize"]
@@ -288,9 +289,156 @@ def _match_money(toks, i, country):
     return j, "money", "%d.%02d %s" % (amount, cents, code)
 
 
-_MATCHERS = [_match_money, _match_digits, _match_number]
+_TEN = {"عشر", "عشره"}
+_ORD = _table(dict(zip([
+    "الأول أول الواحدة الحادي الحادية", "الثاني الثانية", "الثالث الثالثة", "الرابع الرابعة",
+    "الخامس الخامسة", "السادس السادسة", "السابع السابعة", "الثامن الثامنة", "التاسع التاسعة",
+    "العاشر العاشرة", "العشرين", "الثلاثين"], list(range(1, 11)) + [20, 30])))
 
-_KNOWN = set(_NUMS) | set(_PLUS) | set(_REPEAT) | set(_CURRENCY) | set(_DUAL) | set(_SUBUNIT)
+
+def _ordinal(toks, j):
+    """"الخامس" / "الحادي عشر" / "الخامس والعشرين" -> (end, value)."""
+    v, end = _ORD[toks[j].key], j + 1
+    if v < 10 and end < len(toks) and not toks[j].post:
+        nxt = toks[end]
+        if nxt.key in _TEN and not nxt.conj:
+            v, end = v + 10, end + 1
+        elif nxt.conj and nxt.key in ("العشرين", "الثلاثين"):
+            v, end = v + _ORD[nxt.key], end + 1
+    return end, v
+
+
+_FRACTION = _table(dict(zip(["نص نصف النص النصف", "ربع الربع ربعا", "ثلث الثلث ثلثا تلت التلت"], [30, 15, 20])))
+_MINUS = _table(dict.fromkeys(["إلا الا غير"], 1))
+_MINUTE = _table(dict.fromkeys(["دقيقة دقايق دقائق"], 1))
+_PERIOD = _table(dict(zip([
+    "الصبح الصباح صباحا الفجر فجرا",
+    "الظهر الضهر ظهرا",
+    "العصر عصرا المغرب المسا المساء مساء مسا بالمسا",
+    "بالليل الليل ليلا"], ["am", "noon", "pm", "night"])))
+
+
+def _match_time(toks, i, country):
+    """"الساعة تلاتة ونص العصر" -> 15:30. Needs "الساعة" before it or a period word after it."""
+    n, t = len(toks), toks[i]
+    if t.conj:
+        return None
+    if t.key in _ORD:
+        j, h = _ordinal(toks, i)
+    elif t.digits is not None and len(t.digits) <= 2:
+        j, h = i + 1, int(t.digits)
+    elif _kind(t)[1] in ("unit", "ten", "teen"):
+        j, h = i + 1, _kind(t)[0]
+    else:
+        return None
+    if not 1 <= h <= (23 if t.digits else 12):
+        return None
+
+    def at(k):
+        return toks[k] if k < n and not toks[k - 1].post else None
+
+    m = 0
+    nxt = at(j)
+    if nxt and nxt.conj and nxt.key in _FRACTION:
+        m, j = _FRACTION[nxt.key], j + 1
+        nx = at(j)
+        if m == 30 and nx and (nx.conj or nx.key in _MINUS):  # "ونص وخمسة" 35, "ونص الا خمسة" 25
+            k = j if nx.conj else j + 1
+            r = _number(toks, k) if k < n else None
+            if r and r[1] in (5, 10):
+                m, j = m + (r[1] if nx.conj else -r[1]), r[0]
+    elif nxt and nxt.conj:
+        r = _number(toks, j)
+        if r and 1 <= r[1] <= 59:
+            m, j = r[1], r[0]
+            if at(j) and toks[j].key in _MINUTE:
+                j += 1
+    elif nxt and nxt.key in _MINUS and j + 1 < n:
+        x = toks[j + 1]
+        if _FRACTION.get(x.key) in (15, 20):
+            d, j = _FRACTION[x.key], j + 2
+        else:
+            r = _number(toks, j + 1)
+            d = r[1] if r and 1 <= r[1] <= 29 else 0
+            if d:
+                j = r[0] + (1 if at(r[0]) and toks[r[0]].key in _MINUTE else 0)
+        if d:
+            h, m = (h - 1) or 12, 60 - d
+    period = _PERIOD.get(at(j).key) if at(j) else None
+    if period:
+        j += 1
+    elif not (i > 0 and toks[i - 1].key == "الساعه" and not toks[i - 1].post):
+        return None
+    if period == "am" and h == 12:
+        h = 0
+    elif period == "pm" and h < 12 or period == "noon" and h <= 5:
+        h += 12
+    elif period == "night":
+        h = h + 12 if 6 <= h <= 11 else 0 if h == 12 else h
+    return j, "time", "%02d:%02d" % (h, m)
+
+
+_WEEKDAY = _table(dict.fromkeys(["السبت الأحد الإثنين الاتنين الثلاثاء الثلاثا التلات الأربعاء الخميس الجمعة"], 1))
+_MONTHS = _table(dict(zip([
+    "يناير", "فبراير شباط", "مارس آذار", "أبريل نيسان", "مايو أيار", "يونيو يونيه حزيران",
+    "يوليو يوليه تموز", "أغسطس آب", "سبتمبر أيلول", "أكتوبر", "نوفمبر", "ديسمبر"], range(1, 13))))
+_MONTH2 = dict(zip([("كانون", "الثاني"), ("تشرين", "الاول"), ("تشرين", "الثاني"), ("كانون", "الاول")], [1, 10, 11, 12]))
+
+
+def _month(toks, j):
+    n = len(toks)
+    if j >= n:
+        return None
+    t = toks[j]
+    if t.key in _MONTHS:
+        return j + 1, _MONTHS[t.key]
+    if j + 1 < n and (t.key, toks[j + 1].key) in _MONTH2:
+        return j + 2, _MONTH2[t.key, toks[j + 1].key]
+    if t.key == "شهر" and j + 1 < n:
+        r = _number(toks, j + 1)
+        if r and 1 <= r[1] <= 12:
+            return r[0], r[1]
+    return None
+
+
+def _match_date(toks, i, country):
+    """[يوم الخميس] خمسة عشر [من] أكتوبر [سنة] ألفين وستة وعشرين -> 2026-10-15. Year required."""
+    n, j = len(toks), i
+    if toks[j].key == "يوم" and j + 1 < n and toks[j + 1].key in _WEEKDAY:
+        j += 1
+    if toks[j].key in _WEEKDAY:
+        j += 1
+    if j >= n:
+        return None
+    if toks[j].key in _ORD:
+        j, day = _ordinal(toks, j)
+    else:
+        r = _number(toks, j)
+        if not r:
+            return None
+        j, day = r[0], r[1]
+    if j < n and toks[j].key == "من":
+        j += 1
+    r = _month(toks, j)
+    if not r:
+        return None
+    j, month = r
+    if j < n and toks[j].key in ("سنه", "عام"):
+        j += 1
+    r = _number(toks, j) if j < n else None
+    if not r or not 1900 <= r[1] <= 2100:
+        return None
+    try:
+        d = datetime.date(r[1], month, day)
+    except ValueError:
+        return None
+    return r[0], "date", d.isoformat()
+
+
+_MATCHERS = [_match_date, _match_time, _match_money, _match_digits, _match_number]
+
+_KNOWN = (set(_NUMS) | set(_PLUS) | set(_REPEAT) | set(_CURRENCY) | set(_DUAL) | set(_SUBUNIT)
+          | set(_ORD) | set(_FRACTION))
 
 
 def normalize(text, country="SA"):

@@ -105,5 +105,56 @@ class Money(unittest.TestCase):
         self.assertEqual(r["text"], "ادفع 250 SAR لو سمحت")
 
 
+class Times(unittest.TestCase):
+    def test_half_quarter_third(self):
+        self.assertEqual(t("الساعة تلاتة ونص العصر"), "الساعة 15:30")
+        self.assertEqual(t("الساعة تلاتة ونص الصبح"), "الساعة 03:30")
+        self.assertEqual(t("الساعة تلاتة ونص"), "الساعة 03:30")
+        self.assertEqual(t("الساعة خمسة وربع المسا"), "الساعة 17:15")
+        self.assertEqual(t("الساعة سبعة إلا ربع"), "الساعة 06:45")
+        self.assertEqual(t("الساعة تسعة وتلت"), "الساعة 09:20")
+        self.assertEqual(t("الساعة عشرة الا تلت بالليل"), "الساعة 21:40")
+
+    def test_minutes(self):
+        self.assertEqual(t("الساعة عشرة وخمسة"), "الساعة 10:05")
+        self.assertEqual(t("الساعة اتناشر وعشرين دقيقة الظهر"), "الساعة 12:20")
+        self.assertEqual(t("الساعة واحدة الا خمسة"), "الساعة 12:55")
+        self.assertEqual(t("الساعة تمانية ونص وخمسة"), "الساعة 08:35")
+
+    def test_msa_ordinals(self):
+        self.assertEqual(t("الساعة الثالثة والنصف مساءً"), "الساعة 15:30")
+        self.assertEqual(t("الساعة الحادية عشرة صباحا"), "الساعة 11:00")
+        self.assertEqual(t("الساعة الثانية عشرة ظهرا"), "الساعة 12:00")
+
+    def test_period_without_saa(self):
+        self.assertEqual(t("نتقابل تلاتة ونص العصر"), "نتقابل 15:30")
+        self.assertEqual(t("كيلو ونص"), "كيلو ونص")
+
+    def test_time_span(self):
+        r = normalize("موعدك الساعة أربعة العصر")
+        self.assertEqual(r["spans"], [dict(type="time", raw="أربعة العصر", value="16:00")])
+
+
+class Dates(unittest.TestCase):
+    def test_dates_with_year(self):
+        self.assertEqual(t("خمسة عشر أكتوبر ألفين وستة وعشرين"), "2026-10-15")
+        self.assertEqual(t("يوم الخميس خمسة عشر أكتوبر ٢٠٢٦"), "2026-10-15")
+        self.assertEqual(t("الأول من يناير سنة ألفين وسبعة وعشرين"), "2027-01-01")
+        self.assertEqual(t("عشرين شهر تلاتة ٢٠٢٦"), "2026-03-20")
+        self.assertEqual(t("تلاتة تشرين الأول ألفين وخمسة وعشرين"), "2025-10-03")
+        self.assertEqual(t("الخامس والعشرين من ديسمبر 2026"), "2026-12-25")
+        self.assertEqual(t("الحادي عشر من سبتمبر ألفين وواحد"), "2001-09-11")
+
+    def test_no_year_no_date(self):
+        self.assertEqual(t("خمسة عشر أكتوبر"), "15 أكتوبر")
+
+    def test_invalid_day(self):
+        self.assertEqual(t("تلاتين فبراير ٢٠٢٦"), "30 فبراير 2026")
+
+    def test_date_span(self):
+        r = normalize("الموعد يوم الخميس خمسة عشر أكتوبر ٢٠٢٦ إن شاء الله")
+        self.assertEqual(r["spans"], [dict(type="date", raw="يوم الخميس خمسة عشر أكتوبر ٢٠٢٦", value="2026-10-15")])
+
+
 if __name__ == "__main__":
     unittest.main()
